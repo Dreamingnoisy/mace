@@ -239,6 +239,30 @@ def conditional_huber_forces(
 
 
 # ------------------------------------------------------------------------------
+# Atom-wise Energy Loss Functions
+# ------------------------------------------------------------------------------
+
+
+def mean_squared_error_atom_wise_energy(
+    ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+) -> torch.Tensor:
+    raw_loss = torch.square(ref["atom_wise_energy"] - pred["atom_wise_energy"])
+    return reduce_loss(raw_loss, ddp)
+
+
+def weighted_mean_squared_error_atom_wise_energy(
+    ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+) -> torch.Tensor:
+    # Calculate per-graph number of atoms.
+    num_atoms = ref.ptr[1:] - ref.ptr[:-1]  # shape: [n_graphs]
+    raw_loss = (
+        ref.weight
+        * ref.atom_wise_energy_weight
+        * torch.square((ref["atom_wise_energy"] - pred["atom_wise_energy"])) / num_atoms
+    )
+    return reduce_loss(raw_loss, ddp)
+
+# ------------------------------------------------------------------------------
 # Loss Modules Combining Multiple Quantities
 # ------------------------------------------------------------------------------
 
@@ -621,5 +645,30 @@ class WeightedEnergyForcesL1L2Loss(torch.nn.Module):
     def __repr__(self):
         return (
             f"{self.__class__.__name__}(energy_weight={self.energy_weight:.3f}, "
+            f"forces_weight={self.forces_weight:.3f})"
+        )
+
+class WeightedAtomWiseEnergyForcesLoss(torch.nn.Module):
+    def __init__(self, atom_wise_energy_weight=1.0, forces_weight=1.0) -> None:
+        super().__init__()
+        self.register_buffer(
+            "atom_wise_energy_weight",
+            torch.tensor(atom_wise_energy_weight, dtype=torch.get_default_dtype()),
+        )
+        self.register_buffer(
+            "forces_weight",
+            torch.tensor(forces_weight, dtype=torch.get_default_dtype()),
+        )
+
+    def forward(
+        self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+    ) -> torch.Tensor:
+        loss_energy = weighted_mean_squared_error_atom_wise_energy(ref, pred, ddp)
+        loss_forces = mean_squared_error_forces(ref, pred, ddp)
+        return self.atom_wise_energy_weight * loss_energy + self.forces_weight * loss_forces
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(atom_wise_energy_weight={self.atom_wise_energy_weight:.3f}, "
             f"forces_weight={self.forces_weight:.3f})"
         )

@@ -34,6 +34,7 @@ from .loss import (
     WeightedEnergyForcesVirialsLoss,
     WeightedForcesLoss,
     WeightedHuberEnergyForcesStressLoss,
+    WeightedAtomWiseEnergyForcesLoss
 )
 from .models import (
     MACE,
@@ -41,6 +42,7 @@ from .models import (
     AtomicDipolesMACE,
     EnergyDipolesMACE,
     ScaleShiftMACE,
+    AtomWiseMACE,
 )
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
@@ -114,6 +116,7 @@ __all__ = [
     "DipoleSingleLoss",
     "WeightedEnergyForcesDipoleLoss",
     "WeightedHuberEnergyForcesStressLoss",
+    "WeightedAtomWiseEnergyForcesLoss",
     "UniversalLoss",
     "WeightedEnergyForcesL1L2Loss",
     "SymmetricContraction",

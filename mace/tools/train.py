@@ -23,6 +23,7 @@ from torch_ema import ExponentialMovingAverage
 from torchmetrics import Metric
 
 from mace.cli.visualise_train import TrainingPlotter
+from mace.tools.scatter import scatter_mean, scatter_sum
 
 from . import torch_geometric
 from .checkpoint import CheckpointHandler, CheckpointState
@@ -189,7 +190,7 @@ def train(
     logging.info("Started training, reporting errors on validation set")
     logging.info("Loss metrics on validation set")
     epoch = start_epoch
-
+    
     # log validation loss before _any_ training
     for valid_loader_name, valid_loader in valid_loaders.items():
         valid_loss_head, eval_metrics = evaluate(
@@ -202,8 +203,9 @@ def train(
         valid_err_log(
             valid_loss_head, eval_metrics, logger, log_errors, None, valid_loader_name
         )
+    
     valid_loss = valid_loss_head  # consider only the last head for the checkpoint
-
+    
     # variable used for broadcast by rank == 0 if epoch loop is exited early, e.g. patience
     exit_now = torch.zeros(1, device=device) if distributed else None
     while epoch < max_num_epochs:
@@ -560,7 +562,7 @@ def evaluate(
     output_args: Dict[str, bool],
     device: torch.device,
 ) -> Tuple[float, Dict[str, Any]]:
-
+    
 
     metrics = MACELoss(loss_fn=loss_fn).to(device)
 
@@ -622,8 +624,24 @@ class MACELoss(Metric):
         loss = self.loss_fn(pred=output, ref=batch)
         self.total_loss += loss
         self.num_data += batch.num_graphs
+        
 
-        if output.get("energy") is not None and batch.energy is not None:
+        
+            
+        if output.get("atom_wise_energy") is not None and batch.atom_wise_energy is not None:
+            ref_energy = scatter_sum(batch.atom_wise_energy.squeeze(-1), batch.batch, dim=-1, dim_size=batch.num_graphs)
+            out_energy = scatter_sum(output["atom_wise_energy"].squeeze(-1), batch.batch, dim=-1, dim_size=batch.num_graphs)
+            
+            
+            self.delta_es.append(ref_energy - out_energy)
+            self.delta_es_per_atom.append(
+                (ref_energy - out_energy) / (batch.ptr[1:] - batch.ptr[:-1])
+            )
+            self.E_computed += filter_nonzero_weight(
+                batch, self.delta_es, batch.weight, batch.atom_wise_energy_weight
+            )
+            
+        elif output.get("energy") is not None and batch.energy is not None:
             self.delta_es.append(batch.energy - output["energy"])
             self.delta_es_per_atom.append(
                 (batch.energy - output["energy"]) / (batch.ptr[1:] - batch.ptr[:-1])
@@ -631,6 +649,7 @@ class MACELoss(Metric):
             self.E_computed += filter_nonzero_weight(
                 batch, self.delta_es, batch.weight, batch.energy_weight
             )
+            
         if output.get("forces") is not None and batch.forces is not None:
             self.fs.append(batch.forces)
             self.delta_fs.append(batch.forces - output["forces"])

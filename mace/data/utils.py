@@ -61,7 +61,7 @@ def update_keyspec_from_kwargs(
         "polarizability_key",
         "total_spin_key",
     ]
-    arrays = ["forces_key", "charges_key"]
+    arrays = ["forces_key", "charges_key", "decomposed_energy_key", "atom_wise_energy_key"]
     info_keys = {}
     arrays_keys = {}
     for key in infos:
@@ -203,7 +203,7 @@ def config_from_atoms(
         properties[name] = atoms.arrays.get(atoms_key, None)
         if not atoms_key in atoms.arrays:
             property_weights[name] = 0.0
-
+    
     return Configuration(
         atomic_numbers=atomic_numbers,
         positions=atoms.get_positions(),
@@ -247,6 +247,7 @@ def load_from_xyz(
 ) -> Tuple[Dict[int, float], Configurations]:
     atoms_list = ase.io.read(file_path, index=":")
     energy_key = key_specification.info_keys["energy"]
+    atom_wise_energy_key = key_specification.arrays_keys["atom_wise_energy"]
     forces_key = key_specification.arrays_keys["forces"]
     stress_key = key_specification.info_keys["stress"]
     head_key = key_specification.info_keys["head"]
@@ -329,6 +330,10 @@ def load_from_xyz(
                 atomic_number = int(atoms.get_atomic_numbers()[0])
                 if energy_key in atoms.info.keys():
                     atomic_energies_dict[atomic_number] = float(atoms.info[energy_key])
+                elif atom_wise_energy_key in atoms.arrays.keys():
+                    atomic_energies_dict[atomic_number] = float(
+                        atoms.arrays[atom_wise_energy_key][0]
+                    )
                 else:
                     logging.warning(
                         f"Configuration '{idx}' is marked as 'IsolatedAtom' "

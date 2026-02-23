@@ -687,6 +687,11 @@ def get_loss_fn(
             forces_weight=args.forces_weight,
             dipole_weight=args.dipole_weight,
         )
+    elif args.loss == "atomwiseenergy_forces":
+        # WeightedAtomWiseEnergyForcesLoss
+        loss_fn = modules.WeightedAtomWiseEnergyForcesLoss(
+            atom_wise_energy_weight=args.atom_wise_energy_weight, forces_weight=args.forces_weight
+        )
     else:
         loss_fn = modules.WeightedEnergyForcesLoss(energy_weight=1.0, forces_weight=1.0)
     return loss_fn
