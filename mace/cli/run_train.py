@@ -294,12 +294,8 @@ def run(args) -> None:
                 head_config.atomic_energies_dict = ast.literal_eval(
                     statistics["atomic_energies"]
                 )
-        if head_config.train_file in (
-            ["mp"],
-            ["matpes_pbe"],
-            ["matpes_r2scan"],
-            ["omat"],
-        ):
+                
+        if head_config.train_file in (["mp"], ["matpes_pbe"], ["matpes_r2scan"]):
             assert (
                 head_config.head_name == "pt_head"
             ), "Only pt_head should use mp as train_file"
@@ -502,6 +498,7 @@ def run(args) -> None:
         else:
             atomic_energies_dict[head_config.head_name] = head_config.atomic_energies_dict
 
+
     # Atomic energies for multiheads finetuning
     if args.multiheads_finetuning:
         assert (
@@ -690,7 +687,7 @@ def run(args) -> None:
         train_loader_head = torch_geometric.dataloader.DataLoader(
             dataset=train_sets[head_config.head_name],
             batch_size=args.batch_size,
-            shuffle=True,
+            shuffle=args.shuffle,
             drop_last=(not args.lbfgs),
             pin_memory=args.pin_memory,
             num_workers=args.num_workers,
@@ -726,7 +723,7 @@ def run(args) -> None:
         dataset=train_set,
         batch_size=args.batch_size,
         sampler=train_sampler,
-        shuffle=(train_sampler is None),
+        shuffle=(train_sampler is None and args.shuffle),
         drop_last=(train_sampler is None and not args.lbfgs),
         pin_memory=args.pin_memory,
         num_workers=args.num_workers,
