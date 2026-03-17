@@ -231,6 +231,13 @@ def train(
             train_sampler.set_epoch(epoch)
         if "ScheduleFree" in type(optimizer).__name__:
             optimizer.train()
+        
+        # Get training timing
+        if device == 'cuda':
+            start = torch.cuda.Event(enable_timing=True)
+            end = torch.cuda.Event(enable_timing=True)
+            start.record()
+
         train_one_epoch(
             model=model,
             loss_fn=loss_fn,
@@ -246,11 +253,23 @@ def train(
             distributed_model=distributed_model,
             rank=rank,
         )
+
+        if device == 'cuda':
+            end.record()
+            # Waits for everything to finish running
+            torch.cuda.synchronize()
+            logging.info(f"Epoch {epoch} training time: {start.elapsed_time(end) / 1000:.2f} seconds") 
         if distributed:
             torch.distributed.barrier()
 
         # Validate
         if epoch % eval_interval == 0:
+            # Get validate timing
+            if device == 'cuda':
+                start = torch.cuda.Event(enable_timing=True)
+                end = torch.cuda.Event(enable_timing=True)
+                start.record()
+
             model_to_evaluate = (
                 model if distributed_model is None else distributed_model
             )
@@ -337,6 +356,10 @@ def train(
                             keep_last=keep_last,
                         )
                         keep_last = False or save_all_checkpoints
+            if device == 'cuda':
+                end.record()
+                torch.cuda.synchronize()
+                logging.info(f"Epoch {epoch} validation time: {start.elapsed_time(end) / 1000:.2f} seconds")
         if distributed:
             torch.distributed.barrier()
         if exit_now is not None:
@@ -384,7 +407,12 @@ def train_one_epoch(
         if rank == 0:
             logger.log(opt_metrics)
     else:
+        total_gpu_time = 0.0
         for batch in data_loader:
+            if device == 'cuda':
+                start = torch.cuda.Event(enable_timing=True)
+                end = torch.cuda.Event(enable_timing=True)
+                start.record()
             _, opt_metrics = take_step(
                 model=model_to_train,
                 loss_fn=loss_fn,
@@ -397,8 +425,16 @@ def train_one_epoch(
             )
             opt_metrics["mode"] = "opt"
             opt_metrics["epoch"] = epoch
-            if rank == 0:
-                logger.log(opt_metrics)
+            if device == 'cuda':
+                end.record()
+                torch.cuda.synchronize()
+                gpu_time = start.elapsed_time(end) / 1000
+                total_gpu_time += gpu_time
+                opt_metrics["gpu_time"] = gpu_time
+                if rank == 0:
+                    logger.log(opt_metrics)
+        
+        logging.info(f"Epoch {epoch} total training time: {total_gpu_time:.2f} seconds")
 
 
 def take_step(

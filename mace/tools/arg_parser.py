@@ -778,6 +778,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "energy_forces_dipole",
             "l1l2energyforces",
             "atomwiseenergy_forces",
+            "atomwiseenergy",
         ],
     )
     parser.add_argument(
@@ -796,6 +797,14 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--atom_wise_energy_weight", help="weight of atom-wise energy loss", type=float, default=1.0
+    )
+    parser.add_argument(
+        "--swa_atom_wise_energy_weight",
+        "--stage_two_atom_wise_energy_weight",
+        help="weight of atom-wise energy loss after starting Stage Two (previously called swa)",
+        type=float,
+        default=1000.0,
+        dest="swa_atom_wise_energy_weight",
     )
     parser.add_argument(
         "--swa_energy_weight",
@@ -1110,12 +1119,18 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "forces_weight",
         ],
     )
-
     parser.add_argument(
         "--shuffle",
         help="Shuffle the training dataset",
         type=str2bool,
         default=True,
+    )
+    parser.add_argument(
+        "--readout_class",
+        help="Readout class to use",
+        type=str,
+        default="nonlinear",
+        choices=["nonlinear", "nonlinearbias"]
     )
     return parser
 
@@ -1198,6 +1213,18 @@ def build_preprocess_arg_parser() -> argparse.ArgumentParser:
         help="Key of reference energies in training xyz",
         type=str,
         default=DefaultKeys.ENERGY.value,
+    )
+    parser.add_argument(
+        "--decomposed_energy_key",
+        help="Key of decomposed energy in training xyz",
+        type=str,
+        default=DefaultKeys.DECOMPOSED_ENERGY.value,
+    )
+    parser.add_argument(
+        "--atom_wise_energy_key",
+        help="Key of atom-wise energy in training xyz",
+        type=str,
+        default=DefaultKeys.ATOM_WISE_ENERGY.value,
     )
     parser.add_argument(
         "--forces_key",
@@ -1294,6 +1321,7 @@ def build_preprocess_arg_parser() -> argparse.ArgumentParser:
         default=None,
         required=False,
     )
+    
     return parser
 
 

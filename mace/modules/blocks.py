@@ -455,7 +455,30 @@ class RadialEmbeddingBlock(torch.nn.Module):
                 return radial, cutoff
         return radial * cutoff, None  # [n_edges, n_basis], [n_edges, 1]
 
+@compile_mode("script")
+class  AOEmbeddingBlock(torch.nn.Module):
+    def __init__(
+        self,
+        r_max: float,
+        num_polynomial_cutoff: int,
+        num_ao_features: int,
+        apply_cutoff: bool = True,
+    ):
+        super().__init__()
+        self.cutoff_fn = PolynomialCutoff(r_max=r_max, p=num_polynomial_cutoff)
+        self.apply_cutoff = apply_cutoff
+        self.out_dim = num_ao_features
 
+    def forward(
+        self,
+        ao_features: torch.Tensor, # [n_edges, n_ao_features]
+        edge_lengths: torch.Tensor,  # [n_edges, 1]
+    ):
+        cutoff = self.cutoff_fn(edge_lengths)  # [n_edges, 1]
+        if hasattr(self, "apply_cutoff"):
+            if not self.apply_cutoff:
+                return ao_features, cutoff
+        return ao_features * cutoff, None # [n_edges, n_ao_features], [n_edges, 1]
 @compile_mode("script")
 class EquivariantProductBasisBlock(torch.nn.Module):
     def __init__(
@@ -618,6 +641,96 @@ class InteractionBlock(torch.nn.Module):
         edge_index: torch.Tensor,
     ) -> torch.Tensor:
         raise NotImplementedError
+
+@compile_mode("script")
+class AOInteractionBlock(torch.nn.Module):
+    def __init__(
+        self,
+        node_attrs_irreps: o3.Irreps, # atomic numbers
+        node_feats_irreps: o3.Irreps, # node embedding
+        edge_attrs_irreps: o3.Irreps, # spherical harmonics
+        edge_feats_irreps: o3.Irreps, # bessel functions
+        ao_feats_irreps: o3.Irreps, # ao features embedding
+        target_irreps: o3.Irreps,
+        hidden_irreps: o3.Irreps,
+        avg_num_neighbors: float,
+        edge_irreps: Optional[o3.Irreps] = None,
+        radial_MLP: Optional[List[int]] = None,
+        cueq_config: Optional[CuEquivarianceConfig] = None,
+        oeq_config: Optional[OEQConfig] = None,
+    ) -> None:
+        super().__init__()
+        self.node_attrs_irreps = node_attrs_irreps
+        self.node_feats_irreps = node_feats_irreps
+        self.edge_attrs_irreps = edge_attrs_irreps
+        self.edge_feats_irreps = edge_feats_irreps
+        self.ao_feats_irreps = ao_feats_irreps,
+        self.target_irreps = target_irreps
+        self.hidden_irreps = hidden_irreps
+        self.avg_num_neighbors = avg_num_neighbors
+        if radial_MLP is None:
+            radial_MLP = [64, 64, 64]
+        if edge_irreps is None:
+            edge_irreps = self.node_feats_irreps
+        self.radial_MLP = radial_MLP
+        self.edge_irreps = edge_irreps
+        self.cueq_config = cueq_config
+        self.oeq_config = oeq_config
+        if self.oeq_config and self.oeq_config.conv_fusion:
+            self.conv_fusion = self.oeq_config.conv_fusion
+        if self.cueq_config and self.cueq_config.conv_fusion:
+            self.conv_fusion = self.cueq_config.conv_fusion
+        self._setup()
+
+    @abstractmethod
+    def _setup(self) -> None:
+        raise NotImplementedError
+
+    def handle_lammps(
+        self,
+        node_feats: torch.Tensor,
+        lammps_class: Optional[Any],
+        lammps_natoms: Tuple[int, int],
+        first_layer: bool,
+    ) -> torch.Tensor:  # noqa: D401 – internal helper
+        if lammps_class is None or first_layer or torch.jit.is_scripting():
+            return node_feats
+        node_feats = node_feats.contiguous()
+        n_real, n_ghost = lammps_natoms
+        expected_total = n_real + n_ghost
+        # If input already includes ghost slots, skip padding but still do exchange.
+        if node_feats.shape[0] == expected_total:
+            # Input already includes ghost slots, just do exchange
+            node_feats = LAMMPS_MP.apply(node_feats, lammps_class)
+            return node_feats
+        # Normal case: pad with zeros for ghosts, then exchange
+        pad = torch.zeros(
+            (n_ghost, node_feats.shape[1]),
+            dtype=node_feats.dtype,
+            device=node_feats.device,
+        )
+        node_feats = torch.cat((node_feats, pad), dim=0)
+        node_feats = LAMMPS_MP.apply(node_feats, lammps_class)
+        return node_feats
+
+    def truncate_ghosts(
+        self, tensor: torch.Tensor, n_real: Optional[int] = None
+    ) -> torch.Tensor:
+        """Truncate the tensor to only keep the real atoms in case of presence of ghost atoms during multi-GPU MD simulations."""
+        return tensor[:n_real] if n_real is not None else tensor
+
+    @abstractmethod
+    def forward(
+        self,
+        node_attrs: torch.Tensor,
+        node_feats: torch.Tensor,
+        edge_attrs: torch.Tensor,
+        edge_feats: torch.Tensor,
+        ao_feats: torch.Tensor,
+        edge_index: torch.Tensor,
+    ) -> torch.Tensor:
+        raise NotImplementedError
+
 
 
 nonlinearities = {1: torch.nn.functional.silu, -1: torch.tanh}

@@ -63,7 +63,7 @@ def weighted_mean_squared_error_energy(
     raw_loss = (
         ref.weight
         * ref.energy_weight
-        * torch.square((ref["energy"] - pred["energy"]) / num_atoms)
+        * torch.square((ref["energy"] - pred["energy"])) / num_atoms
     )
     return reduce_loss(raw_loss, ddp)
 
@@ -258,7 +258,9 @@ def weighted_mean_squared_error_atom_wise_energy(
     raw_loss = (
         ref.weight
         * ref.atom_wise_energy_weight
-        * torch.square((ref["atom_wise_energy"] - pred["atom_wise_energy"])) / num_atoms
+        * torch.square(
+                        (ref["atom_wise_energy"] - pred["atom_wise_energy"])
+                        / num_atoms)
     )
     return reduce_loss(raw_loss, ddp)
 
@@ -671,4 +673,31 @@ class WeightedAtomWiseEnergyForcesLoss(torch.nn.Module):
         return (
             f"{self.__class__.__name__}(atom_wise_energy_weight={self.atom_wise_energy_weight:.3f}, "
             f"forces_weight={self.forces_weight:.3f})"
+        )
+
+
+class WeightedAtomWiseEnergyLoss(torch.nn.Module):
+    """Loss module that only accounts for atom-wise energy difference.
+
+    This is essentially the energy component of
+    :class:`WeightedAtomWiseEnergyForcesLoss` and mirrors the pattern used
+    throughout this file for other quantity-specific losses.
+    """
+
+    def __init__(self, atom_wise_energy_weight=1.0) -> None:
+        super().__init__()
+        self.register_buffer(
+            "atom_wise_energy_weight",
+            torch.tensor(atom_wise_energy_weight, dtype=torch.get_default_dtype()),
+        )
+
+    def forward(
+        self, ref: Batch, pred: TensorDict, ddp: Optional[bool] = None
+    ) -> torch.Tensor:
+        loss_energy = weighted_mean_squared_error_atom_wise_energy(ref, pred, ddp)
+        return self.atom_wise_energy_weight * loss_energy
+
+    def __repr__(self):
+        return (
+            f"{self.__class__.__name__}(atom_wise_energy_weight={self.atom_wise_energy_weight:.3f})"
         )

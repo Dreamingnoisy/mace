@@ -108,6 +108,12 @@ def parse_args() -> argparse.Namespace:
         required=False,
         default=None,
     )
+    parser.add_argument(
+        "--return_atom_wise_energies",
+        help="return atom-wise energies",
+        action="store_true",
+        default=False,
+    )
     return parser.parse_args()
 
 
@@ -290,8 +296,12 @@ def run(args: argparse.Namespace) -> None:
         assert len(atoms_list) == len(descriptors_list)
 
     if args.return_node_energies:
-        node_energies = np.concatenate(node_energies_list, axis=0)
-        assert len(atoms_list) == node_energies.shape[0]
+        # node_energies_list is a list of batches, each is a list of per-config arrays
+        # flatten to a single list so we can handle variable atom counts per config
+        node_energies = [ne for batch_list in node_energies_list for ne in batch_list]
+        
+        # Ensure number of configs matches
+        assert len(atoms_list) == len(node_energies)
 
     # Store data in atoms objects
     for i, (atoms, energy, forces) in enumerate(zip(atoms_list, energies, forces_list)):
