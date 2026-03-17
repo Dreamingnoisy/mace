@@ -644,6 +644,7 @@ class InteractionBlock(torch.nn.Module):
         raise NotImplementedError
 
 
+nonlinearities = {1: torch.nn.functional.silu, -1: torch.tanh}
 
 
 @compile_mode("script")
@@ -1555,7 +1556,6 @@ class AOInteractionBlock(torch.nn.Module):
 
 
 
-nonlinearities = {1: torch.nn.functional.silu, -1: torch.tanh}
 
 @compile_mode("script")
 class AORealAgnosticResidualInteractionBlock(InteractionBlock):
