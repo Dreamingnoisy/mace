@@ -221,6 +221,19 @@ def _determine_atomic_inter_shift(mean, heads):
 def _build_model(
     args, model_config, model_config_foundation, heads
 ):  # pylint: disable=too-many-return-statements
+    # Resolve CLI provided readout class name (support both 'readout_cls' and 'readout_class')
+
+    _readout_name = getattr(args, "readout_class", None)
+    if _readout_name is not None:
+        if _readout_name == "nonlinear":
+            readout_cls_var = modules.NonLinearReadoutBlock
+        elif _readout_name == "nonlinearbias":
+            readout_cls_var = modules.NonLinearBiasReadoutBlock
+        else:
+            readout_cls_var = modules.readout_classes.get(_readout_name, modules.NonLinearReadoutBlock)
+    else:
+        readout_cls_var = modules.NonLinearReadoutBlock
+    
     if args.model == "MACE":
         if args.interaction_first not in [
             "RealAgnosticInteractionBlock",
@@ -246,12 +259,16 @@ def _build_model(
             use_agnostic_product=args.use_agnostic_product,
         )
     if args.model == "AtomWiseMACE":
-        assert args.loss == "atomwiseenergy_forces", "Use atomwiseenergy_forces loss with AtomWiseMACE model"
+        assert args.loss in ["atomwiseenergy_forces", "atomwiseenergy"], f"Use atomwiseenergy_forces or atomwiseenergy loss with AtomWiseMACE model, got {args.loss}"
         if args.interaction_first not in [
             "RealAgnosticInteractionBlock",
             "RealAgnosticDensityInteractionBlock",
         ]:
             args.interaction_first = "RealAgnosticInteractionBlock"
+        logging.info(f"Using readout class: {readout_cls_var.__name__}")
+        logging.info(f"Scale and shift for atomic interactions: scale={args.std}, shift=0.0")
+
+
         return modules.AtomWiseMACE(
             **model_config,
             pair_repulsion=args.pair_repulsion,
@@ -269,6 +286,7 @@ def _build_model(
             use_embedding_readout=args.use_embedding_readout,
             use_last_readout_only=args.use_last_readout_only,
             use_agnostic_product=args.use_agnostic_product,
+            readout_cls=readout_cls_var,
         )
     if args.model == "ScaleShiftMACE":
         return modules.ScaleShiftMACE(

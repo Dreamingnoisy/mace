@@ -34,7 +34,8 @@ from .loss import (
     WeightedEnergyForcesVirialsLoss,
     WeightedForcesLoss,
     WeightedHuberEnergyForcesStressLoss,
-    WeightedAtomWiseEnergyForcesLoss
+    WeightedAtomWiseEnergyForcesLoss,
+    WeightedAtomWiseEnergyLoss,
 )
 from .models import (
     MACE,
@@ -105,6 +106,7 @@ __all__ = [
     "BesselBasis",
     "GaussianBasis",
     "MACE",
+    "AtomWiseMACE",
     "ScaleShiftMACE",
     "AtomicDipolesMACE",
     "AtomicDielectricMACE",
@@ -113,6 +115,8 @@ __all__ = [
     "WeightedForcesLoss",
     "WeightedEnergyForcesVirialsLoss",
     "WeightedEnergyForcesStressLoss",
+    "WeightedAtomWiseEnergyForcesLoss",
+    "WeightedAtomWiseEnergyLoss",
     "DipoleSingleLoss",
     "WeightedEnergyForcesDipoleLoss",
     "WeightedHuberEnergyForcesStressLoss",
