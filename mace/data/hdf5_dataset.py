@@ -69,6 +69,12 @@ class HDF5Dataset(Dataset):
             pbc=unpack_value(subgrp["pbc"][()]),
             cell=unpack_value(subgrp["cell"][()]),
         )
+        # Try to include ao features
+        if "ao_feats" in subgrp:
+            config.properties["num_ao_feats"] = unpack_value(subgrp["num_ao_feats"][()])
+            config.properties["ao_feats"] = unpack_value(subgrp["ao_feats"][()])
+            config.properties["ao_feats_grad"] = unpack_value(subgrp["ao_feats_grad"][()])
+
         if config.head is None:
             config.head = self.kwargs.get("head")
         atomic_data = self.atomic_dataclass.from_config(

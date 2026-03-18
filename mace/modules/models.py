@@ -447,6 +447,7 @@ class AOMACE(torch.nn.Module):
         r_max: float,
         num_bessel: int,
         num_polynomial_cutoff: int,
+        num_ao_features: int, 
         max_ell: int,
         interaction_cls: Type[InteractionBlock],
         interaction_cls_first: Type[InteractionBlock],
@@ -470,6 +471,7 @@ class AOMACE(torch.nn.Module):
         edge_irreps: Optional[o3.Irreps] = None,
         use_edge_irreps_first: bool = False,
         radial_MLP: Optional[List[int]] = None,
+        ao_MLP: Optional[List[int]] = None,
         radial_type: Optional[str] = "bessel",
         heads: Optional[List[str]] = None,
         cueq_config: Optional[Dict[str, Any]] = None,
@@ -539,6 +541,7 @@ class AOMACE(torch.nn.Module):
         self.ao_embedding = AOEmbeddingBlock(
             r_max=r_max,
             num_polynomial_cutoff=num_polynomial_cutoff,
+            num_ao_features=num_ao_features,
             apply_cutoff=apply_cutoff
         )
         ao_feats_irreps = o3.Irreps(f"{self.ao_embedding.out_dim}x0e")
@@ -569,6 +572,8 @@ class AOMACE(torch.nn.Module):
         )
         if radial_MLP is None:
             radial_MLP = [64, 64, 64]
+        if ao_MLP is None:
+            ao_MLP = [64, 64, 64]
         # Interactions and readout
         self.atomic_energies_fn = AtomicEnergiesBlock(atomic_energies)
         if num_interactions == 1:
@@ -583,6 +588,7 @@ class AOMACE(torch.nn.Module):
             node_feats_irreps=node_feats_irreps,
             edge_attrs_irreps=sh_irreps,
             edge_feats_irreps=edge_feats_irreps,
+            ao_feats_irreps=ao_feats_irreps,
             target_irreps=interaction_irreps_first,
             hidden_irreps=hidden_irreps_out,
             edge_irreps=edge_irreps_first,
@@ -635,6 +641,7 @@ class AOMACE(torch.nn.Module):
                 node_feats_irreps=hidden_irreps,
                 edge_attrs_irreps=sh_irreps,
                 edge_feats_irreps=edge_feats_irreps,
+                ao_feats_irreps=ao_feats_irreps,
                 target_irreps=interaction_irreps,
                 hidden_irreps=hidden_irreps_out,
                 avg_num_neighbors=avg_num_neighbors,
@@ -726,6 +733,9 @@ class AOMACE(torch.nn.Module):
         edge_feats, cutoff = self.radial_embedding(
             lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
         )
+        ao_feats, cutoff = self.ao_embedding(
+            data["ao_feats"], lengths
+        )
         if hasattr(self, "pair_repulsion"):
             pair_node_energy = self.pair_repulsion_fn(
                 lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
@@ -775,6 +785,7 @@ class AOMACE(torch.nn.Module):
                 node_feats=node_feats,
                 edge_attrs=edge_attrs,
                 edge_feats=edge_feats,
+                ao_feats=ao_feats,
                 edge_index=data["edge_index"],
                 cutoff=cutoff,
                 first_layer=(i == 0),

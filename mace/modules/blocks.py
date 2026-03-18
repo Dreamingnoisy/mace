@@ -1558,7 +1558,7 @@ class AOInteractionBlock(torch.nn.Module):
 
 
 @compile_mode("script")
-class AORealAgnosticResidualInteractionBlock(InteractionBlock):
+class AORealAgnosticResidualInteractionBlock(AOInteractionBlock):
     def _setup(self) -> None:
         if not hasattr(self, "cueq_config"):
             self.cueq_config = None

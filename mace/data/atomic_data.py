@@ -19,7 +19,7 @@ from mace.tools import (
 
 from .neighborhood import get_neighborhood
 from .utils import Configuration
-
+from .PairFeature import AOPairFeatures
 
 class AtomicData(torch_geometric.data.Data):
     num_graphs: torch.Tensor
@@ -55,6 +55,9 @@ class AtomicData(torch_geometric.data.Data):
     volume: torch.Tensor
     fermi_level: torch.Tensor
     external_field: torch.Tensor
+    num_ao_feats: torch.Tensor
+    ao_feats: torch.Tensor
+    ao_feats_grad: torch.Tensor
 
     def __init__(
         self,
@@ -90,6 +93,9 @@ class AtomicData(torch_geometric.data.Data):
         volume: Optional[torch.Tensor] = None,  # [,]
         fermi_level: Optional[torch.Tensor] = None,  # [,]
         external_field: Optional[torch.Tensor] = None,  # [1,3]
+        num_ao_feats: Optional[torch.Tensor] = None, # [,]
+        ao_feats: Optional[torch.Tensor] = None, # [n_edges, num_ao_feats]
+        ao_feats_grad: Optional[torch.Tensor] = None, # [n_edges, n_nodes, 3, num_ao_feats]
         **extra_data: torch.Tensor,
     ):
         # Check shapes
@@ -128,6 +134,11 @@ class AtomicData(torch_geometric.data.Data):
         assert volume is None or len(volume.shape) == 0
         assert fermi_level is None or len(fermi_level.shape) == 0
         assert external_field is None or external_field.shape == (1, 3)
+        assert num_ao_feats is None or len(num_ao_feats.shape) == 0
+        assert ao_feats is None or ao_feats.shape == (edge_index.shape[1], num_ao_feats)
+        assert (
+            ao_feats_grad is None or ao_feats.shape == (edge_index.shape[1], num_nodes, 3, num_ao_feats)
+        )
 
         # Aggregate data
         data = {
@@ -164,6 +175,9 @@ class AtomicData(torch_geometric.data.Data):
             "volume": volume,
             "fermi_level": fermi_level,
             "external_field": external_field,
+            "num_ao_feats": num_ao_feats,
+            "ao_feats": ao_feats,
+            "ao_feats_grad": ao_feats_grad,
         }
         data.update(extra_data)
         super().__init__(**data)
@@ -408,6 +422,16 @@ class AtomicData(torch_geometric.data.Data):
             if config.properties.get("density_coefficients") is not None
             else torch.zeros(num_atoms, 1, dtype=torch.get_default_dtype())
         )
+        # Here to define ao features
+        num_ao_feats = torch.tensor(
+            config.properties.get("num_ao_feats"), dtype=torch.get_default_dtype()
+        )
+        ao_feats = torch.tensor(
+            config.properties.get("ao_feats"), dtype=torch.get_default_dtype()
+        )
+        ao_feats_grad = torch.tensor(
+            config.properties.get("ao_feats_grad"), dtype=torch.get_default_dtype()
+        )
 
         cls_kwargs = dict(
             edge_index=torch.tensor(edge_index, dtype=torch.long),
@@ -442,6 +466,9 @@ class AtomicData(torch_geometric.data.Data):
             volume=volume,
             fermi_level=fermi_level,
             external_field=external_field,
+            num_ao_feats=num_ao_feats,
+            ao_feats=ao_feats,
+            ao_feats_grad=ao_feats_grad,
         )
 
         # Pass through any extra properties not already handled above.
