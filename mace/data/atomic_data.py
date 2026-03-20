@@ -19,7 +19,6 @@ from mace.tools import (
 
 from .neighborhood import get_neighborhood
 from .utils import Configuration
-from .PairFeature import AOPairFeatures
 
 class AtomicData(torch_geometric.data.Data):
     num_graphs: torch.Tensor
@@ -134,10 +133,10 @@ class AtomicData(torch_geometric.data.Data):
         assert volume is None or len(volume.shape) == 0
         assert fermi_level is None or len(fermi_level.shape) == 0
         assert external_field is None or external_field.shape == (1, 3)
-        assert num_ao_feats is None or len(num_ao_feats.shape) == 0
+        assert num_ao_feats is None or type(num_ao_feats) == int
         assert ao_feats is None or ao_feats.shape == (edge_index.shape[1], num_ao_feats)
         assert (
-            ao_feats_grad is None or ao_feats.shape == (edge_index.shape[1], num_nodes, 3, num_ao_feats)
+            ao_feats_grad is None or ao_feats_grad.shape == (edge_index.shape[1], num_nodes, 3, num_ao_feats)
         )
 
         # Aggregate data
@@ -423,18 +422,76 @@ class AtomicData(torch_geometric.data.Data):
             else torch.zeros(num_atoms, 1, dtype=torch.get_default_dtype())
         )
         # Here to define ao features
-        num_ao_feats = torch.tensor(
-            config.properties.get("num_ao_feats"), dtype=torch.get_default_dtype()
+        num_ao_feats = (
+            config.properties.get("num_ao_feats")
+            if config.properties.get("num_ao_feats") is not None
+            else int(0)
         )
-        ao_feats = torch.tensor(
-            config.properties.get("ao_feats"), dtype=torch.get_default_dtype()
+        ao_feats = (
+            torch.tensor(
+                config.properties.get("ao_feats"),
+                dtype=torch.get_default_dtype(),
+            )
+            if config.properties.get("ao_feats") is not None
+            else None
         )
-        ao_feats_grad = torch.tensor(
-            config.properties.get("ao_feats_grad"), dtype=torch.get_default_dtype()
+        ao_feats_grad = (
+            torch.tensor(
+                config.properties.get("ao_feats_grad"),
+                dtype=torch.get_default_dtype(),
+            )
+            if config.properties.get("ao_feats_grad") is not None
+            else None
+        )
+        pair_ids = (
+            torch.tensor(
+                config.properties.get("pair_ids").T,
+                dtype=torch.long,
+            )
+            if config.properties.get("pair_ids") is not None
+            else None
         )
 
+        # pair to edge mapping
+        edge_index = torch.tensor(edge_index, dtype=torch.long)
+        num_edges = edge_index.shape[1]
+        
+        if ao_feats is not None and pair_ids is not None and  num_edges> 0:
+            pair_min = torch.min(pair_ids, dim=0).values
+            pair_max = torch.max(pair_ids, dim=0).values
+
+            pair_key = pair_min * num_atoms + pair_max
+            pair_key_to_idx = {int(key): idx for idx, key in enumerate(pair_key)}
+
+            edge_min = torch.min(edge_index, dim=0).values
+            edge_max = torch.max(edge_index, dim=0).values
+            edge_key = edge_min * num_atoms + edge_max
+
+            edge_to_pair_idx = torch.tensor([
+                pair_key_to_idx.get(int(key), -1) for key in edge_key
+            ])
+            valid_mask = edge_to_pair_idx >= 0
+
+            ao_feats_expanded = torch.zeros((num_edges, num_ao_feats),
+                                           dtype=torch.get_default_dtype())
+            ao_feats_expanded[valid_mask] = ao_feats[edge_to_pair_idx[valid_mask]]
+            ao_feats = torch.tensor(ao_feats_expanded, dtype=torch.get_default_dtype())
+
+            if ao_feats_grad is not None:
+                ao_feats_grad_expanded = torch.zeros(
+                    (num_edges, num_atoms, 3, num_ao_feats),
+                      dtype=torch.get_default_dtype()
+                )
+                ao_feats_grad_expanded[valid_mask] = ao_feats_grad[edge_to_pair_idx[valid_mask]]
+                ao_feats_grad = torch.tensor(ao_feats_grad_expanded,
+                                              dtype=torch.get_default_dtype())
+            else:
+                ao_feats_grad = torch.zeros(
+                    num_edges, num_atoms, 3, num_ao_feats, dtype=torch.get_default_dtype()
+                )
+
         cls_kwargs = dict(
-            edge_index=torch.tensor(edge_index, dtype=torch.long),
+            edge_index=edge_index,
             positions=positions,
             shifts=torch.tensor(shifts, dtype=torch.get_default_dtype()),
             unit_shifts=torch.tensor(unit_shifts, dtype=torch.get_default_dtype()),

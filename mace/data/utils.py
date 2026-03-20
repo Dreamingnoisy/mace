@@ -595,6 +595,7 @@ def save_AtomicData_to_HDF5(data, i, h5_file) -> None:
     grp["polarizability"] = data.polarizability
     grp["head"] = data.head
     if hasattr(data, "ao_feats"):
+        grp["num_ao_feats"] = data.num_ao_feats
         grp["ao_feats"] = data.ao_feats
         grp["ao_feats_grad"] = data.ao_feats_grad
 

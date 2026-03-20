@@ -43,6 +43,8 @@ from .utils import (
     prepare_graph,
 )
 
+from .pairfeature import AOPairFeatures
+
 
 @compile_mode("script")
 class MACE(torch.nn.Module):
@@ -717,6 +719,10 @@ class AOMACE(torch.nn.Module):
         interaction_kwargs = ctx.interaction_kwargs
         lammps_natoms = interaction_kwargs.lammps_natoms
         lammps_class = interaction_kwargs.lammps_class
+
+        data["ao_feats"] = AOPairFeatures.apply(
+            positions, data["ao_feats"], data["ao_feats_grad"]
+        )
 
         # Atomic energies
         node_e0 = self.atomic_energies_fn(data["node_attrs"])[
