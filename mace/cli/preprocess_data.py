@@ -184,6 +184,9 @@ def run(args: argparse.Namespace):
         seed=args.seed,
         key_specification=args.key_specification,
         head_name="",
+        ao_feats_train_path=args.ao_feats_train_file,
+        ao_feats_valid_path=args.ao_feats_valid_file,
+        ao_feats_test_path=args.ao_feats_test_file,
     )
 
     # Atomic number table

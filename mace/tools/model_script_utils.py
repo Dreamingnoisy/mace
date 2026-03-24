@@ -307,6 +307,52 @@ def _build_model(
             use_agnostic_product=args.use_agnostic_product,
             readout_cls=readout_cls_var,
         )
+    if args.model == "AOMACE":
+        assert args.interaction_first in ["AORealAgnosticResidualInteractionBlock"]
+        assert args.interaction in ["AORealAgnosticResidualInteractionBlock"]
+        model_config["num_ao_features"] = args.num_ao_features
+        return modules.AOScaleShiftMACE(
+            **model_config,
+            pair_repulsion=args.pair_repulsion,
+            distance_transform=args.distance_transform,
+            correlation=args.correlation,
+            gate=modules.gate_dict[args.gate],
+            interaction_cls_first=modules.interaction_classes[args.interaction_first],
+            MLP_irreps=o3.Irreps(args.MLP_irreps),
+            atomic_inter_scale=args.std,
+            atomic_inter_shift=[0.0] * len(heads),
+            radial_MLP=ast.literal_eval(args.radial_MLP),
+            ao_MLP=ast.literal_eval(args.ao_MLP),
+            radial_type=args.radial_type,
+            heads=heads,
+            embedding_specs=args.embedding_specs,
+            use_embedding_readout=args.use_embedding_readout,
+            use_last_readout_only=args.use_last_readout_only,
+            use_agnostic_product=args.use_agnostic_product,
+        )
+    if args.model == "AOScaleShiftMACE":
+        assert args.interaction_first in ["AORealAgnosticResidualInteractionBlock"]
+        assert args.interaction in ["AORealAgnosticResidualInteractionBlock"]
+        model_config["num_ao_features"] = args.num_ao_features
+        return modules.AOScaleShiftMACE(
+            **model_config,
+            pair_repulsion=args.pair_repulsion,
+            distance_transform=args.distance_transform,
+            correlation=args.correlation,
+            gate=modules.gate_dict[args.gate],
+            interaction_cls_first=modules.interaction_classes[args.interaction_first],
+            MLP_irreps=o3.Irreps(args.MLP_irreps),
+            atomic_inter_scale=args.std,
+            atomic_inter_shift=args.mean,
+            radial_MLP=ast.literal_eval(args.radial_MLP),
+            ao_MLP=ast.literal_eval(args.ao_MLP),
+            radial_type=args.radial_type,
+            heads=heads,
+            embedding_specs=args.embedding_specs,
+            use_embedding_readout=args.use_embedding_readout,
+            use_last_readout_only=args.use_last_readout_only,
+            use_agnostic_product=args.use_agnostic_product,
+        )
     if args.model == "ScaleShiftMACE":
         return modules.ScaleShiftMACE(
             **model_config,

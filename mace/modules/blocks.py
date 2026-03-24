@@ -1484,7 +1484,7 @@ class AOInteractionBlock(torch.nn.Module):
         self.node_feats_irreps = node_feats_irreps
         self.edge_attrs_irreps = edge_attrs_irreps
         self.edge_feats_irreps = edge_feats_irreps
-        self.ao_feats_irreps = ao_feats_irreps,
+        self.ao_feats_irreps = ao_feats_irreps
         self.target_irreps = target_irreps
         self.hidden_irreps = hidden_irreps
         self.avg_num_neighbors = avg_num_neighbors

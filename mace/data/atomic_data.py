@@ -133,7 +133,7 @@ class AtomicData(torch_geometric.data.Data):
         assert volume is None or len(volume.shape) == 0
         assert fermi_level is None or len(fermi_level.shape) == 0
         assert external_field is None or external_field.shape == (1, 3)
-        assert num_ao_feats is None or type(num_ao_feats) == int
+        assert num_ao_feats is None or len(num_ao_feats.shape) == 0
         assert ao_feats is None or ao_feats.shape == (edge_index.shape[1], num_ao_feats)
         assert (
             ao_feats_grad is None or ao_feats_grad.shape == (edge_index.shape[1], num_nodes, 3, num_ao_feats)
@@ -425,7 +425,7 @@ class AtomicData(torch_geometric.data.Data):
         num_ao_feats = (
             config.properties.get("num_ao_feats")
             if config.properties.get("num_ao_feats") is not None
-            else int(0)
+            else None
         )
         ao_feats = (
             torch.tensor(
@@ -475,7 +475,7 @@ class AtomicData(torch_geometric.data.Data):
             ao_feats_expanded = torch.zeros((num_edges, num_ao_feats),
                                            dtype=torch.get_default_dtype())
             ao_feats_expanded[valid_mask] = ao_feats[edge_to_pair_idx[valid_mask]]
-            ao_feats = torch.tensor(ao_feats_expanded, dtype=torch.get_default_dtype())
+            ao_feats = ao_feats_expanded.detach().clone()
 
             if ao_feats_grad is not None:
                 ao_feats_grad_expanded = torch.zeros(
@@ -483,8 +483,7 @@ class AtomicData(torch_geometric.data.Data):
                       dtype=torch.get_default_dtype()
                 )
                 ao_feats_grad_expanded[valid_mask] = ao_feats_grad[edge_to_pair_idx[valid_mask]]
-                ao_feats_grad = torch.tensor(ao_feats_grad_expanded,
-                                              dtype=torch.get_default_dtype())
+                ao_feats_grad = ao_feats_grad_expanded.detach().clone() 
             else:
                 ao_feats_grad = torch.zeros(
                     num_edges, num_atoms, 3, num_ao_feats, dtype=torch.get_default_dtype()

@@ -41,7 +41,66 @@ class Collater:
 
     def collate(self, batch):  # Deprecated...
         return self(batch)
+    
+class AOCollater(Collater):
+    """
+    Extended Collater that handles ao_feats and ao_feats_grad for AO models.
+    Preserves all parent Collater functionality for other data types.
+    """
+    
+    def __call__(self, batch):
+        elem = batch[0]
+        
+        # === AO-SPECIFIC HANDLING (only for Data objects) ===
+        ao_feats_grad_list = None
+        ao_feats_list = None
+        
+        if isinstance(elem, Data):
+            # Extract ao_feats_grad (keep as list for per-graph storage)
+            if hasattr(elem, 'ao_feats_grad'):
+                ao_feats_grad_list = [graph.ao_feats_grad for graph in batch]
+                for graph in batch:
+                    if hasattr(graph, 'ao_feats_grad'):
+                        del graph.ao_feats_grad
+            
+            # Extract ao_feats (will concatenate manually after batching)
+            if hasattr(elem, 'ao_feats'):
+                ao_feats_list = [graph.ao_feats for graph in batch]
+                for graph in batch:
+                    if hasattr(graph, 'ao_feats'):
+                        del graph.ao_feats
+        
+        # === CALL PARENT COLLATER (handles ALL data types) ===
+        if isinstance(elem, Data):
+            batched = Batch.from_data_list(
+                batch,
+                follow_batch=self.follow_batch,
+                exclude_keys=self.exclude_keys,
+            )
+            
+            # === REATTACH AO ATTRIBUTES (for Data objects) ===
+            if ao_feats_grad_list is not None:
+                batched.ao_feats_grad_list = ao_feats_grad_list
+            if ao_feats_list is not None:
+                batched.ao_feats = torch.cat(ao_feats_list, dim=0)
+            
+            return batched
+        elif isinstance(elem, torch.Tensor):
+            return default_collate(batch)
+        elif isinstance(elem, float):
+            return torch.tensor(batch, dtype=torch.float)
+        elif isinstance(elem, int):
+            return torch.tensor(batch)
+        elif isinstance(elem, str):
+            return batch
+        elif isinstance(elem, Mapping):
+            return {key: self([data[key] for data in batch]) for key in elem}
+        elif isinstance(elem, tuple) and hasattr(elem, "_fields"):
+            return type(elem)(*(self(s) for s in zip(*batch)))
+        elif isinstance(elem, Sequence) and not isinstance(elem, str):
+            return [self(s) for s in zip(*batch)]
 
+        raise TypeError(f"DataLoader found invalid type: {type(elem)}")
 
 class DataLoader(torch.utils.data.DataLoader):
     r"""A data loader which merges data objects from a
@@ -82,6 +141,6 @@ class DataLoader(torch.utils.data.DataLoader):
             dataset,
             batch_size,
             shuffle,
-            collate_fn=Collater(follow_batch, exclude_keys),
+            collate_fn=AOCollater(follow_batch, exclude_keys),
             **kwargs,
         )

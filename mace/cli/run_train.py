@@ -564,6 +564,11 @@ def run(args) -> None:
             args.compute_virials = False
             args.compute_stress = False
             args.compute_polarizability = False
+        elif args.model == "AtomWiseMACE":
+            args.compute_energy = True
+            args.compute_atomwise_energy = True
+            args.compute_dipole = False
+            args.compute_polarizability = False
         else:
             args.compute_energy = True
             args.compute_dipole = False
@@ -683,7 +688,6 @@ def run(args) -> None:
         else:
             dataset_size = len(train_sets[head_config.head_name])
         logging.info(f"Head '{head_config.head_name}' training dataset size: {dataset_size}")
-
         train_loader_head = torch_geometric.dataloader.DataLoader(
             dataset=train_sets[head_config.head_name],
             batch_size=args.batch_size,
@@ -1033,6 +1037,7 @@ def run(args) -> None:
                 drop_last=drop_last,
                 num_workers=args.num_workers,
                 pin_memory=args.pin_memory,
+                collate_fn=ao_collate_fn,
             )
             test_data_loader[test_name] = test_loader
         if stop_first_test:

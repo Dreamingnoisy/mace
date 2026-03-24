@@ -145,6 +145,8 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "AtomicDielectricMACE",
             "EnergyDipolesMACE",
             "AtomWiseMACE",
+            "AOMACE",
+            "AOScaleShiftMACE",
         ],
     )
     parser.add_argument(
@@ -211,6 +213,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "RealAgnosticDensityInteractionBlock",
             "RealAgnosticDensityResidualInteractionBlock",
             "RealAgnosticResidualNonLinearInteractionBlock",
+            "AORealAgnosticResidualInteractionBlock",
         ],
     )
     parser.add_argument(
@@ -224,6 +227,7 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
             "RealAgnosticDensityInteractionBlock",
             "RealAgnosticDensityResidualInteractionBlock",
             "RealAgnosticResidualNonLinearInteractionBlock",
+            "AORealAgnosticResidualInteractionBlock",
         ],
     )
     parser.add_argument(
@@ -254,6 +258,9 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         "--num_interactions", help="number of interactions", type=int, default=2
     )
     parser.add_argument(
+        "--num_ao_features", help="number of AO features", type=int, default=18
+    )
+    parser.add_argument(
         "--MLP_irreps",
         help="hidden irreps of the MLP in last readout",
         type=str,
@@ -262,6 +269,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--radial_MLP",
         help="width of the radial MLP",
+        type=str,
+        default="[64, 64, 64]",
+    )
+    parser.add_argument(
+        "--ao_MLP",
+        help="width of the ao MLP",
         type=str,
         default="[64, 64, 64]",
     )
@@ -456,6 +469,24 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         "--test_file",
         help="Test set .xyz pt .h5 file",
         type=str,
+    )
+    parser.add_argument(
+        "--ao_feats_train_file",
+        help="Training set file of AO pair feautres, format .h5",
+        type=str,
+        required=False,
+    )
+    parser.add_argument(
+        "--ao_feats_valid_file",
+        help="Validation set file of AO pair feautres, format .h5",
+        type=str,
+        required=False,
+    )
+    parser.add_argument(
+        "--ao_feats_test_file",
+        help="Test set file of AO pair feautres, format .h5",
+        type=str,
+        required=False,
     )
     parser.add_argument(
         "--test_dir",
@@ -1185,6 +1216,24 @@ def build_preprocess_arg_parser() -> argparse.ArgumentParser:
         help="Test set xyz file",
         type=str,
         default=None,
+        required=False,
+    )
+    parser.add_argument(
+        "--ao_feats_train_file",
+        help="Training set file of AO pair feautres, format .h5",
+        type=str,
+        required=False,
+    )
+    parser.add_argument(
+        "--ao_feats_valid_file",
+        help="Validation set file of AO pair feautres, format .h5",
+        type=str,
+        required=False,
+    )
+    parser.add_argument(
+        "--ao_feats_test_file",
+        help="Test set file of AO pair feautres, format .h5",
+        type=str,
         required=False,
     )
     parser.add_argument(

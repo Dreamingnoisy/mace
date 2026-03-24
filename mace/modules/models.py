@@ -20,6 +20,7 @@ from .blocks import (
     AtomicEnergiesBlock,
     EquivariantProductBasisBlock,
     InteractionBlock,
+    AOInteractionBlock,
     LinearDipolePolarReadoutBlock,
     LinearDipoleReadoutBlock,
     LinearNodeEmbeddingBlock,
@@ -442,7 +443,7 @@ class MACE(torch.nn.Module):
             "node_feats": node_feats_out,
         }
     
-
+@compile_mode("script")
 class AOMACE(torch.nn.Module):
     def __init__(
         self,
@@ -451,8 +452,8 @@ class AOMACE(torch.nn.Module):
         num_polynomial_cutoff: int,
         num_ao_features: int, 
         max_ell: int,
-        interaction_cls: Type[InteractionBlock],
-        interaction_cls_first: Type[InteractionBlock],
+        interaction_cls: Type[AOInteractionBlock],
+        interaction_cls_first: Type[AOInteractionBlock],
         num_interactions: int,
         num_elements: int,
         hidden_irreps: o3.Irreps,
@@ -481,6 +482,7 @@ class AOMACE(torch.nn.Module):
         oeq_config: Optional[Dict[str, Any]] = None,
         lammps_mliap: Optional[bool] = False,
         readout_cls: Optional[Type[Union[NonLinearReadoutBlock, NonLinearBiasReadoutBlock]]] = NonLinearReadoutBlock,
+        keep_last_layer_irreps: bool = False,
     ):
         super().__init__()
         self.register_buffer(
@@ -596,6 +598,7 @@ class AOMACE(torch.nn.Module):
             edge_irreps=edge_irreps_first,
             avg_num_neighbors=avg_num_neighbors,
             radial_MLP=radial_MLP,
+            ao_MLP=ao_MLP,
             cueq_config=cueq_config,
             oeq_config=oeq_config,
         )
@@ -632,7 +635,7 @@ class AOMACE(torch.nn.Module):
             )
 
         for i in range(num_interactions - 1):
-            if i == num_interactions - 2:
+            if i == num_interactions - 2 and not keep_last_layer_irreps:
                 hidden_irreps_out = str(
                     hidden_irreps[0]
                 )  # Select only scalars for last layer
@@ -649,6 +652,7 @@ class AOMACE(torch.nn.Module):
                 avg_num_neighbors=avg_num_neighbors,
                 edge_irreps=edge_irreps,
                 radial_MLP=radial_MLP,
+                ao_MLP=ao_MLP,
                 cueq_config=cueq_config,
                 oeq_config=oeq_config,
             )
@@ -858,7 +862,206 @@ class AOMACE(torch.nn.Module):
             "hessian": hessian,
             "node_feats": node_feats_out,
         }
+    
+@compile_mode("script")
+class AOScaleShiftMACE(AOMACE):
+    def __init__(
+        self,
+        atomic_inter_scale: float,
+        atomic_inter_shift: float,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.scale_shift = ScaleShiftBlock(
+            scale=atomic_inter_scale, shift=atomic_inter_shift
+        )
 
+    def forward(
+        self,
+        data: Dict[str, torch.Tensor],
+        training: bool = False,
+        compute_force: bool = True,
+        compute_virials: bool = False,
+        compute_stress: bool = False,
+        compute_displacement: bool = False,
+        compute_hessian: bool = False,
+        compute_edge_forces: bool = False,
+        compute_atomic_stresses: bool = False,
+        lammps_mliap: bool = False,
+    ) -> Dict[str, Optional[torch.Tensor]]:
+        # Setup
+        ctx = prepare_graph(
+            data,
+            compute_virials=compute_virials,
+            compute_stress=compute_stress,
+            compute_displacement=compute_displacement,
+            lammps_mliap=lammps_mliap,
+        )
+
+        is_lammps = ctx.is_lammps
+        num_atoms_arange = ctx.num_atoms_arange.to(torch.int64)
+        num_graphs = ctx.num_graphs
+        displacement = ctx.displacement
+        positions = ctx.positions
+        vectors = ctx.vectors
+        lengths = ctx.lengths
+        cell = ctx.cell
+        node_heads = ctx.node_heads.to(torch.int64)
+        interaction_kwargs = ctx.interaction_kwargs
+        lammps_natoms = interaction_kwargs.lammps_natoms
+        lammps_class = interaction_kwargs.lammps_class
+
+        # AO feature processing (from AOMACE)
+        edge_batch = data["batch"][data["edge_index"][0]] 
+        atom_batch = data["batch"]  # (num_atoms_total,)
+        ao_feats_grad_list = data["ao_feats_grad_list"]
+        data["ao_feats"] = AOPairFeatures.apply(
+                                    positions,
+                                    data["ao_feats"],              # (num_edges_total, 18) - concatenated
+                                    ao_feats_grad_list,            # List of per-graph tensors
+                                    edge_batch,
+                                    atom_batch,
+                            )
+        # Atomic energies
+        node_e0 = self.atomic_energies_fn(data["node_attrs"])[
+            num_atoms_arange, node_heads
+        ]
+        e0 = scatter_sum(
+            src=node_e0, index=data["batch"], dim=0, dim_size=num_graphs
+        ).to(
+            vectors.dtype
+        )  # [n_graphs, num_heads]
+
+        # Embeddings
+        node_feats = self.node_embedding(data["node_attrs"])
+        edge_attrs = self.spherical_harmonics(vectors)
+        edge_feats, cutoff = self.radial_embedding(
+            lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+        )
+        ao_feats, cutoff = self.ao_embedding(
+            data["ao_feats"], lengths
+        )
+
+        if hasattr(self, "pair_repulsion"):
+            pair_node_energy = self.pair_repulsion_fn(
+                lengths, data["node_attrs"], data["edge_index"], self.atomic_numbers
+            )
+            if is_lammps:
+                pair_node_energy = pair_node_energy[: lammps_natoms[0]]
+        else:
+            pair_node_energy = torch.zeros_like(node_e0)
+
+        # Embeddings of additional features
+        if hasattr(self, "joint_embedding"):
+            embedding_features: Dict[str, torch.Tensor] = {}
+            for name, _ in self.embedding_specs.items():
+                embedding_features[name] = data[name]
+            node_feats += self.joint_embedding(
+                data["batch"],
+                embedding_features,
+            )
+            if hasattr(self, "embedding_readout"):
+                embedding_node_energy = torch.atleast_1d(
+                    self.embedding_readout(node_feats, node_heads)[
+                        num_atoms_arange, node_heads
+                    ].squeeze(-1)
+                )
+                embedding_energy = scatter_sum(
+                    src=embedding_node_energy,
+                    index=data["batch"],
+                    dim=0,
+                    dim_size=num_graphs,
+                )
+                e0 += embedding_energy
+
+        # Interactions (collect node energies for scale-shift)
+        node_es_list = [pair_node_energy]
+        node_feats_list: List[torch.Tensor] = []
+
+        for i, (interaction, product) in enumerate(
+            zip(self.interactions, self.products)
+        ):
+            node_attrs_slice = data["node_attrs"]
+            if is_lammps and i > 0:
+                node_attrs_slice = node_attrs_slice[: lammps_natoms[0]]
+            node_feats, sc = interaction(
+                node_attrs=node_attrs_slice,
+                node_feats=node_feats,
+                edge_attrs=edge_attrs,
+                edge_feats=edge_feats,
+                ao_feats=ao_feats,
+                edge_index=data["edge_index"],
+                cutoff=cutoff,
+                first_layer=(i == 0),
+                lammps_class=lammps_class,
+                lammps_natoms=lammps_natoms,
+            )
+            if is_lammps and i == 0:
+                node_attrs_slice = node_attrs_slice[: lammps_natoms[0]]
+            node_feats = product(
+                node_feats=node_feats, sc=sc, node_attrs=node_attrs_slice
+            )
+            node_feats_list.append(node_feats)
+
+        for i, readout in enumerate(self.readouts):
+            feat_idx = -1 if len(self.readouts) == 1 else i
+            node_es_list.append(
+                readout(node_feats_list[feat_idx], node_heads)[
+                    num_atoms_arange, node_heads
+                ]
+            )
+
+        node_feats_out = torch.cat(node_feats_list, dim=-1)
+        
+        # Scale-shift applied to interaction energies (from ScaleShiftMACE)
+        node_inter_es = torch.sum(torch.stack(node_es_list, dim=0), dim=0)
+        node_inter_es = self.scale_shift(node_inter_es, node_heads)
+        inter_e = scatter_sum(node_inter_es, data["batch"], dim=-1, dim_size=num_graphs)
+
+        total_energy = e0 + inter_e
+        node_energy = node_e0.clone().double() + node_inter_es.clone().double()
+
+        # Forces computed from inter_e (not total_energy) - ScaleShiftMACE pattern
+        forces, virials, stress, hessian, edge_forces = get_outputs(
+            energy=inter_e,
+            positions=positions,
+            displacement=displacement,
+            vectors=vectors,
+            cell=cell,
+            training=training,
+            compute_force=compute_force,
+            compute_virials=compute_virials,
+            compute_stress=compute_stress,
+            compute_hessian=compute_hessian,
+            compute_edge_forces=compute_edge_forces or compute_atomic_stresses,
+        )
+
+        atomic_virials: Optional[torch.Tensor] = None
+        atomic_stresses: Optional[torch.Tensor] = None
+        if compute_atomic_stresses and edge_forces is not None:
+            atomic_virials, atomic_stresses = get_atomic_virials_stresses(
+                edge_forces=edge_forces,
+                edge_index=data["edge_index"],
+                vectors=vectors,
+                num_atoms=positions.shape[0],
+                batch=data["batch"],
+                cell=cell,
+            )
+        return {
+            "energy": total_energy,
+            "node_energy": node_energy,
+            "interaction_energy": inter_e,
+            "forces": forces,
+            "edge_forces": edge_forces,
+            "virials": virials,
+            "stress": stress,
+            "atomic_virials": atomic_virials,
+            "atomic_stresses": atomic_stresses,
+            "hessian": hessian,
+            "displacement": displacement,
+            "node_feats": node_feats_out,
+        }
+    
 @compile_mode("script")
 class AtomWiseMACE(MACE):
     def __init__(

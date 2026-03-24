@@ -23,6 +23,8 @@ from mace import data, modules, tools
 from mace.data import KeySpecification
 from mace.tools.train import SWAContainer
 
+from torch_geometric.data import Batch
+
 
 @dataclasses.dataclass
 class SubsetCollection:
@@ -32,6 +34,7 @@ class SubsetCollection:
 
 
 def log_dataset_contents(dataset: data.Configurations, dataset_name: str) -> None:
+
     log_string = f"{dataset_name} ["
     for prop_name in dataset[0].properties.keys():
         if prop_name == "dipole":
@@ -55,6 +58,9 @@ def get_dataset_from_xyz(
     head_name: str = "Default",
     no_data_ok: bool = False,
     prefix: Optional[str] = None,
+    ao_feats_train_path: Optional[Union[str, List[str]]]= None,
+    ao_feats_valid_path: Optional[Union[str, List[str]]]= None,
+    ao_feats_test_path : Optional[Union[str, List[str]]]= None,
 ) -> Tuple[SubsetCollection, Optional[Dict[int, float]]]:
     """
     Load training, validation, and test datasets from xyz files.
@@ -91,6 +97,31 @@ def get_dataset_from_xyz(
         else test_path
     )
 
+    ao_feats_train_paths = (
+        [ao_feats_train_path]
+        if isinstance(ao_feats_train_path, str) and ao_feats_train_path is not None
+        else ao_feats_train_path
+    )
+    ao_feats_valid_paths = (
+        [ao_feats_valid_path]
+        if isinstance(ao_feats_valid_path, str) and ao_feats_valid_path is not None
+        else ao_feats_valid_path
+    )
+    ao_feats_test_paths = (
+        [ao_feats_test_path]
+        if isinstance(ao_feats_test_path, str) and ao_feats_test_path is not None
+        else ao_feats_test_path
+    )
+
+    if ao_feats_train_paths:
+            assert len(ao_feats_train_paths) == len(train_paths), \
+                "Number of AO features files has to be the same with xyz files"
+    if ao_feats_valid_paths:
+            assert len(ao_feats_valid_paths) == len(valid_paths), \
+                "Number of AO features files has to be the same with xyz files"
+    if ao_feats_test_paths:
+            assert len(ao_feats_test_paths) == len(test_paths), \
+                "Number of AO features files has to be the same with xyz files"      
     # Initialize collections and atomic energies tracking
     all_train_configs = []
     all_valid_configs = []
@@ -112,6 +143,10 @@ def get_dataset_from_xyz(
             head_name=head_name,
             no_data_ok=no_data_ok,
         )
+
+        if ao_feats_train_paths:
+            add_ao_feats_to_configs(ao_feats_train_paths[i], train_configs)
+
         all_train_configs.extend(train_configs)
 
         # Track atomic energies from each file for averaging
@@ -123,7 +158,7 @@ def get_dataset_from_xyz(
 
                 atomic_energies_values[element].append(energy)
                 atomic_energies_counts[element] += 1
-
+        
         log_dataset_contents(train_configs, f"Training set {i+1}/{len(train_paths)}")
 
     # Log total training set info
@@ -139,6 +174,8 @@ def get_dataset_from_xyz(
                 extract_atomic_energies=False,
                 head_name=head_name,
             )
+            if ao_feats_valid_paths:
+                add_ao_feats_to_configs(ao_feats_valid_paths[i], valid_configs)
             all_valid_configs.extend(valid_configs)
             log_dataset_contents(
                 valid_configs, f"Validation set {i+1}/{len(valid_paths)}"
@@ -167,6 +204,8 @@ def get_dataset_from_xyz(
                 extract_atomic_energies=False,
                 head_name=head_name,
             )
+            if ao_feats_test_paths:
+                add_ao_feats_to_configs(ao_feats_test_paths[i], test_configs)
             all_test_configs.extend(test_configs)
 
             log_dataset_contents(test_configs, f"Test set {i+1}/{len(test_paths)}")
@@ -195,6 +234,62 @@ def get_dataset_from_xyz(
         atomic_energies_dict if atomic_energies_dict else None,
     )
 
+def add_ao_feats_to_configs(ao_feats_file, configs):
+    import h5py
+    with h5py.File(ao_feats_file, 'r') as fpair:
+        for idx, mol in enumerate(fpair):
+            grp = fpair[mol]
+            ao_feat = grp['pair_features'][:]
+            ao_feat_grad = grp['pair_features_grad'][:]
+            pair_ids = grp['pair_ids'][:]
+
+            configs[idx].properties["ao_feats"] = ao_feat
+            configs[idx].properties['ao_feats_grad'] = ao_feat_grad
+            configs[idx].properties['pair_ids'] = pair_ids
+            configs[idx].properties['num_ao_feats'] = np.array(ao_feat.shape[1], dtype=int)
+
+            configs[idx].property_weights["ao_feats"] = 1.0
+            configs[idx].property_weights['ao_feats_grad'] = 1.0
+            configs[idx].property_weights['pair_ids'] = 1.0
+            configs[idx].property_weights['num_ao_feats'] = 1.0
+
+# ============================================================================
+# ADD THIS AFTER IMPORTS (around line 50-60)
+# ============================================================================
+
+def ao_collate_fn(batch):
+    """
+    Custom collate function that preserves per-graph ao_feats_grad as a list.
+    """
+    from torch_geometric.data import Batch
+    import torch
+    
+    # Extract per-graph tensors before batching
+    ao_feats_list = [graph.ao_feats for graph in batch if hasattr(graph, 'ao_feats')]
+    ao_feats_grad_list = [graph.ao_feats_grad for graph in batch if hasattr(graph, 'ao_feats_grad')]
+    
+    # Remove from individual graphs to prevent PyG stacking
+    for graph in batch:
+        if hasattr(graph, 'ao_feats'):
+            del graph.ao_feats
+        if hasattr(graph, 'ao_feats_grad'):
+            del graph.ao_feats_grad
+    
+    # Use PyG's default batching for standard attributes
+    batched = Batch.from_data_list(batch)
+    
+    # Reattach as list and concatenated tensor
+    if ao_feats_grad_list:
+        batched.ao_feats_grad_list = ao_feats_grad_list
+    if ao_feats_list:
+        batched.ao_feats = torch.cat(ao_feats_list, dim=0)
+    print(type(batched.ao_feats_grad_list));exit()
+    
+    return batched
+
+# ============================================================================
+# THEN UPDATE ALL DATALOADERS (4 locations)
+# ============================================================================
 
 def get_config_type_weights(ct_weights):
     """

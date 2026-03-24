@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional, Type
+from typing import Callable, Dict, Optional, Type, Union
 
 import torch
 
@@ -7,6 +7,7 @@ from .blocks import (
     EquivariantProductBasisBlock,
     GeneralNonLinearBiasReadoutBlock,
     InteractionBlock,
+    AOInteractionBlock,
     LinearDipolePolarReadoutBlock,
     LinearDipoleReadoutBlock,
     LinearNodeEmbeddingBlock,
@@ -23,6 +24,7 @@ from .blocks import (
     RealAgnosticResidualInteractionBlock,
     RealAgnosticResidualNonLinearInteractionBlock,
     ScaleShiftBlock,
+    AORealAgnosticResidualInteractionBlock,
 )
 from .extensions import PolarMACE
 from .loss import (
@@ -47,6 +49,7 @@ from .models import (
     ScaleShiftMACE,
     AtomWiseMACE,
     AOMACE,
+    AOScaleShiftMACE,
 )
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
@@ -61,13 +64,14 @@ from .utils import (
     compute_statistics,
 )
 
-interaction_classes: Dict[str, Type[InteractionBlock]] = {
+interaction_classes: Dict[str, Type[Union[InteractionBlock, AOInteractionBlock]]] = {
     "RealAgnosticResidualInteractionBlock": RealAgnosticResidualInteractionBlock,
     "RealAgnosticAttResidualInteractionBlock": RealAgnosticAttResidualInteractionBlock,
     "RealAgnosticInteractionBlock": RealAgnosticInteractionBlock,
     "RealAgnosticDensityInteractionBlock": RealAgnosticDensityInteractionBlock,
     "RealAgnosticDensityResidualInteractionBlock": RealAgnosticDensityResidualInteractionBlock,
     "RealAgnosticResidualNonLinearInteractionBlock": RealAgnosticResidualNonLinearInteractionBlock,
+    "AORealAgnosticResidualInteractionBlock": AORealAgnosticResidualInteractionBlock,
 }
 
 readout_classes: Dict[str, Type[LinearReadoutBlock]] = {
@@ -111,6 +115,7 @@ __all__ = [
     "GaussianBasis",
     "MACE",
     "AOMACE",
+    "AOScaleShiftMACE",
     "AtomWiseMACE",
     "ScaleShiftMACE",
     "AtomicDipolesMACE",
