@@ -279,6 +279,12 @@ def build_default_arg_parser() -> argparse.ArgumentParser:
         default="[64, 64, 64]",
     )
     parser.add_argument(
+        "--ao_mlp_weight",
+        help="weight of the ao MLP",
+        type=float,
+        default=1.0,
+    )
+    parser.add_argument(
         "--hidden_irreps",
         help="irreps for hidden node states",
         type=str,

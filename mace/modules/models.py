@@ -483,6 +483,7 @@ class AOMACE(torch.nn.Module):
         lammps_mliap: Optional[bool] = False,
         readout_cls: Optional[Type[Union[NonLinearReadoutBlock, NonLinearBiasReadoutBlock]]] = NonLinearReadoutBlock,
         keep_last_layer_irreps: bool = False,
+        ao_mlp_weight: float = 1.0,
     ):
         super().__init__()
         self.register_buffer(
@@ -493,6 +494,9 @@ class AOMACE(torch.nn.Module):
         )
         self.register_buffer(
             "num_interactions", torch.tensor(num_interactions, dtype=torch.int64)
+        )
+        self.register_buffer(
+            "ao_mlp_weight", torch.tensor(ao_mlp_weight, dtype=torch.get_default_dtype())
         )
         if heads is None:
             heads = ["Default"]
@@ -599,6 +603,7 @@ class AOMACE(torch.nn.Module):
             avg_num_neighbors=avg_num_neighbors,
             radial_MLP=radial_MLP,
             ao_MLP=ao_MLP,
+            ao_mlp_weight=ao_mlp_weight,
             cueq_config=cueq_config,
             oeq_config=oeq_config,
         )
@@ -653,6 +658,7 @@ class AOMACE(torch.nn.Module):
                 edge_irreps=edge_irreps,
                 radial_MLP=radial_MLP,
                 ao_MLP=ao_MLP,
+                ao_mlp_weight=ao_mlp_weight,
                 cueq_config=cueq_config,
                 oeq_config=oeq_config,
             )
@@ -724,9 +730,17 @@ class AOMACE(torch.nn.Module):
         lammps_natoms = interaction_kwargs.lammps_natoms
         lammps_class = interaction_kwargs.lammps_class
 
+        # AO feature processing (from AOMACE)
+        edge_batch = data["batch"][data["edge_index"][0]] 
+        atom_batch = data["batch"]  # (num_atoms_total,)
+        ao_feats_grad_list = data["ao_feats_grad_list"]
         data["ao_feats"] = AOPairFeatures.apply(
-            positions, data["ao_feats"], data["ao_feats_grad"]
-        )
+                                    positions,
+                                    data["ao_feats"],              # (num_edges_total, 18) - concatenated
+                                    ao_feats_grad_list,            # List of per-graph tensors
+                                    edge_batch,
+                                    atom_batch,
+                            )
 
         # Atomic energies
         node_e0 = self.atomic_energies_fn(data["node_attrs"])[

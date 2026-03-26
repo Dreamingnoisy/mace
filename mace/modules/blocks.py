@@ -1478,6 +1478,7 @@ class AOInteractionBlock(torch.nn.Module):
         ao_MLP: Optional[List[int]] = None,
         cueq_config: Optional[CuEquivarianceConfig] = None,
         oeq_config: Optional[OEQConfig] = None,
+        ao_mlp_weight: float = 0.5,
     ) -> None:
         super().__init__()
         self.node_attrs_irreps = node_attrs_irreps
@@ -1503,6 +1504,7 @@ class AOInteractionBlock(torch.nn.Module):
             self.conv_fusion = self.oeq_config.conv_fusion
         if self.cueq_config and self.cueq_config.conv_fusion:
             self.conv_fusion = self.cueq_config.conv_fusion
+        self.ao_mlp_weight = ao_mlp_weight
         self._setup()
 
     @abstractmethod
@@ -1647,7 +1649,7 @@ class AORealAgnosticResidualInteractionBlock(AOInteractionBlock):
         radial_weights = self.conv_tp_weights(edge_feats)
         # Add AO feats weights to radial weights
         ao_tp_weights = self.ao_conv_tp_weights(ao_feats)
-        tp_weights = radial_weights + ao_tp_weights
+        tp_weights = (1-self.ao_mlp_weight)*radial_weights + self.ao_mlp_weight*ao_tp_weights
         if cutoff is not None:
             tp_weights = tp_weights * cutoff
         message = None
