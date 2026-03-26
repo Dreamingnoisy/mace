@@ -17,6 +17,7 @@ from .utils import (
     save_dataset_as_HDF5,
     test_config_types,
     update_keyspec_from_kwargs,
+    get_noisolated_indices,
 )
 
 __all__ = [
@@ -39,4 +40,5 @@ __all__ = [
     "KeySpecification",
     "update_keyspec_from_kwargs",
     "LMDBDataset",
+    "get_noisolated_indices",
 ]

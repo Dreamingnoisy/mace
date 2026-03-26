@@ -145,7 +145,13 @@ def get_dataset_from_xyz(
         )
 
         if ao_feats_train_paths:
-            add_ao_feats_to_configs(ao_feats_train_paths[i], train_configs)
+            # get indices without isolated_atoms
+            train_indices = data.get_noisolated_indices(
+                file_path=path,
+                keep_isolated_atoms=keep_isolated_atoms,
+            )
+            assert len(train_indices) == len(train_configs)
+            add_ao_feats_to_configs(ao_feats_train_paths[i], train_configs, train_indices)
 
         all_train_configs.extend(train_configs)
 
@@ -175,7 +181,13 @@ def get_dataset_from_xyz(
                 head_name=head_name,
             )
             if ao_feats_valid_paths:
-                add_ao_feats_to_configs(ao_feats_valid_paths[i], valid_configs)
+                valid_indices = data.get_noisolated_indices(
+                                    file_path=path,
+                                    keep_isolated_atoms=keep_isolated_atoms,
+                                )
+                assert len(valid_indices) == len(valid_configs)
+                add_ao_feats_to_configs(ao_feats_valid_paths[i], valid_configs, valid_indices)
+                
             all_valid_configs.extend(valid_configs)
             log_dataset_contents(
                 valid_configs, f"Validation set {i+1}/{len(valid_paths)}"
@@ -205,7 +217,12 @@ def get_dataset_from_xyz(
                 head_name=head_name,
             )
             if ao_feats_test_paths:
-                add_ao_feats_to_configs(ao_feats_test_paths[i], test_configs)
+                test_indices = data.get_noisolated_indices(
+                file_path=path,
+                keep_isolated_atoms=keep_isolated_atoms,
+            )
+                assert len(test_indices) == len(test_configs)
+                add_ao_feats_to_configs(ao_feats_test_paths[i], test_configs, test_indices)
             all_test_configs.extend(test_configs)
 
             log_dataset_contents(test_configs, f"Test set {i+1}/{len(test_paths)}")
@@ -234,24 +251,28 @@ def get_dataset_from_xyz(
         atomic_energies_dict if atomic_energies_dict else None,
     )
 
-def add_ao_feats_to_configs(ao_feats_file, configs):
+def add_ao_feats_to_configs(ao_feats_file, configs, indices):
     import h5py
+    n_shift = 0
     with h5py.File(ao_feats_file, 'r') as fpair:
         for idx, mol in enumerate(fpair):
+            if idx not in indices:
+                n_shift += 1
+                continue
             grp = fpair[mol]
             ao_feat = grp['pair_features'][:]
             ao_feat_grad = grp['pair_features_grad'][:]
             pair_ids = grp['pair_ids'][:]
+            idx_shifted = idx - n_shift
+            configs[idx_shifted].properties["ao_feats"] = ao_feat
+            configs[idx_shifted].properties['ao_feats_grad'] = ao_feat_grad
+            configs[idx_shifted].properties['pair_ids'] = pair_ids
+            configs[idx_shifted].properties['num_ao_feats'] = np.array(ao_feat.shape[1], dtype=int)
 
-            configs[idx].properties["ao_feats"] = ao_feat
-            configs[idx].properties['ao_feats_grad'] = ao_feat_grad
-            configs[idx].properties['pair_ids'] = pair_ids
-            configs[idx].properties['num_ao_feats'] = np.array(ao_feat.shape[1], dtype=int)
-
-            configs[idx].property_weights["ao_feats"] = 1.0
-            configs[idx].property_weights['ao_feats_grad'] = 1.0
-            configs[idx].property_weights['pair_ids'] = 1.0
-            configs[idx].property_weights['num_ao_feats'] = 1.0
+            configs[idx_shifted].property_weights["ao_feats"] = 1.0
+            configs[idx_shifted].property_weights['ao_feats_grad'] = 1.0
+            configs[idx_shifted].property_weights['pair_ids'] = 1.0
+            configs[idx_shifted].property_weights['num_ao_feats'] = 1.0
 
 # ============================================================================
 # ADD THIS AFTER IMPORTS (around line 50-60)

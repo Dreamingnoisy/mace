@@ -235,6 +235,23 @@ def test_config_types(
             test_by_ct[ind][1].append(conf)
     return test_by_ct
 
+def get_noisolated_indices(
+    file_path:str,
+    keep_isolated_atoms: bool = False,                       
+) -> List[int]:
+    atoms_list = ase.io.read(file_path, index=":")
+    
+    if keep_isolated_atoms:
+        return list(range(len(atoms_list)))
+    
+    atoms_noisolated_indices = []
+    for idx, atoms in enumerate(atoms_list):
+            isolated_atom_config = (
+                len(atoms) == 1 and atoms.info.get("config_type") == "IsolatedAtom"
+            )
+            if not isolated_atom_config:
+                atoms_noisolated_indices.append(idx)
+    return atoms_noisolated_indices
 
 def load_from_xyz(
     file_path: str,
