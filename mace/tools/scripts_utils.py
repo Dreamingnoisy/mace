@@ -23,7 +23,6 @@ from mace import data, modules, tools
 from mace.data import KeySpecification
 from mace.tools.train import SWAContainer
 
-from torch_geometric.data import Batch
 
 
 @dataclasses.dataclass
